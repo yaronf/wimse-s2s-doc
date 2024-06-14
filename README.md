@@ -1,0 +1,1 @@
+Minimal code to generate examples for the wimse service-to-service draft. This is **not** reference code for anything.
