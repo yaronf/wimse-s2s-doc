@@ -132,6 +132,17 @@ func prettyPrint(data map[string]interface{}) {
 	fmt.Println(string(jsonBytes))
 }
 
+func printJWK(key jwk.Key) {
+	// Convert the complete key (including private key material) to JSON
+	jsonBytes, err := json.MarshalIndent(key, "", "  ")
+	if err != nil {
+		fmt.Printf("Error marshaling JWK: %v\n", err)
+		return
+	}
+
+	fmt.Println(string(jsonBytes))
+}
+
 func main() {
 	// Parse command line flags
 	debugFlag := flag.Bool("debug", false, "Enable debug mode to decode WIT tokens")
@@ -238,6 +249,12 @@ No ice cream today.
 		fmt.Println("\n=== Service B WIT ===")
 		decodeJWT(svcBWIT)
 	}
+
+	// Print Service B JWK for figure 15
+	fmt.Println("\n" + strings.Repeat("=", 80))
+	fmt.Println("Service B JWK (Figure 15)")
+	fmt.Println(strings.Repeat("=", 80))
+	printJWK(svcBKey)
 }
 
 func failIf(err error, message string) {
