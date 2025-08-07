@@ -226,7 +226,7 @@ No ice cream today.
 `, svcBWIT)
 
 	// Sign the request with service A key
-	config := httpsign.NewSignConfig().SetTag("wimse-service-to-service").
+	config := httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
 		SetNonce("abcd1111").SignAlg(false).SetExpires(expires)
 	fields := httpsign.NewFields().AddHeaders("@method", "@request-target", "workload-identity-token").
 		AddHeaderExt("Content-Type", true, false, false, false).
@@ -248,7 +248,7 @@ No ice cream today.
 	fmt.Print(string(reqStr))
 
 	// Sign the response with service B key
-	config = httpsign.NewSignConfig().SetTag("wimse-service-to-service").
+	config = httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
 		SetNonce("abcd2222").SignAlg(false).SetExpires(expires + 2)
 	fields = httpsign.NewFields().AddHeaders("@status", "workload-identity-token").
 		AddHeaderExt("Content-Type", true, false, false, false).
