@@ -16,6 +16,7 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
+	"github.com/lestrrat-go/jwx/v2/jws"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/yaronf/httpsign"
 )
@@ -74,8 +75,27 @@ func generateWIT(serviceKey jwk.Key, issuerKey jwk.Key, subject, issuer, service
 	}
 	token.Set("cnf", cnf)
 
-	// Sign the token with the issuer key
-	signed, err := jwt.Sign(token, jwt.WithKey(jwa.EdDSA, issuerKey))
+	// Sign the token with the issuer key and set the correct typ header
+	// First serialize the token to JSON
+	tokenJSON, err := json.Marshal(token)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal token: %w", err)
+	}
+
+	// Create headers with the correct typ
+	headers := jws.NewHeaders()
+	if err := headers.Set("typ", "wimse-id+jwt"); err != nil {
+		return "", fmt.Errorf("failed to set typ header: %w", err)
+	}
+	if err := headers.Set("alg", "EdDSA"); err != nil {
+		return "", fmt.Errorf("failed to set alg header: %w", err)
+	}
+	if err := headers.Set("kid", "issuer-key"); err != nil {
+		return "", fmt.Errorf("failed to set kid header: %w", err)
+	}
+
+	// Sign using jws.Sign directly
+	signed, err := jws.Sign(tokenJSON, jws.WithKey(jwa.EdDSA, issuerKey, jws.WithProtectedHeaders(headers)))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign WIT: %w", err)
 	}
