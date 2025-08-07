@@ -52,24 +52,27 @@ func generateWIT(serviceKey jwk.Key, issuerKey jwk.Key, subject, issuer, service
 	token.Set("exp", exp)
 	token.Set("jti", jti)
 
-	// Create cnf claim with the service's public key
+		// Create cnf claim with the service's public key
 	// First, get the public key (remove private key material)
 	publicKey, err := serviceKey.PublicKey()
 	if err != nil {
 		return "", fmt.Errorf("failed to get public key: %w", err)
 	}
-
+	
 	// Convert to JSON
 	publicKeyJSON, err := json.Marshal(publicKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal public key: %w", err)
 	}
-
+	
 	var publicKeyMap map[string]interface{}
 	if err := json.Unmarshal(publicKeyJSON, &publicKeyMap); err != nil {
 		return "", fmt.Errorf("failed to unmarshal public key: %w", err)
 	}
-
+	
+	// Add the alg field to the JWK
+	publicKeyMap["alg"] = "EdDSA"
+	
 	cnf := map[string]interface{}{
 		"jwk": publicKeyMap,
 	}
