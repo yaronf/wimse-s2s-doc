@@ -162,8 +162,25 @@ func printJWK(key jwk.Key) {
 		fmt.Printf("Error marshaling JWK: %v\n", err)
 		return
 	}
+	
+	// Parse the JSON to add the alg field
+	var keyMap map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &keyMap); err != nil {
+		fmt.Printf("Error unmarshaling JWK: %v\n", err)
+		return
+	}
+	
+	// Add the alg field
+	keyMap["alg"] = "EdDSA"
+	
+	// Marshal back to JSON
+	finalJSON, err := json.MarshalIndent(keyMap, "", "  ")
+	if err != nil {
+		fmt.Printf("Error marshaling final JWK: %v\n", err)
+		return
+	}
 
-	fmt.Println(string(jsonBytes))
+	fmt.Println(string(finalJSON))
 }
 
 func main() {
