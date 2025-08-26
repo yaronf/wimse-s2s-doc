@@ -87,7 +87,7 @@ func generateWIT(serviceKey jwk.Key, issuerKey jwk.Key, subject, issuer, service
 
 	// Create headers with the correct typ
 	headers := jws.NewHeaders()
-	if err := headers.Set("typ", "wimse-id+jwt"); err != nil {
+	if err := headers.Set("typ", "wit+jwt"); err != nil {
 		return "", fmt.Errorf("failed to set typ header: %w", err)
 	}
 	if err := headers.Set("alg", "EdDSA"); err != nil {
