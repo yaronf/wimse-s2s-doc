@@ -58,7 +58,7 @@ func generateEd25519Key(keyID string) (jwk.Key, error) {
 // The WIT is signed by the issuer and contains the workload's public key in the
 // cnf claim. This public key is later used to sign HTTP messages, creating a
 // proof-of-possession binding between the WIT and the HTTP requests/responses.
-func generateWIT(serviceKey jwk.Key, issuerKey jwk.Key, subject, issuer, serviceKeyID string, iat, exp int64, jti string) (string, error) {
+func generateWIT(serviceKey jwk.Key, issuerKey jwk.Key, issuerKeyID, subject, issuer string, iat, exp int64, jti string) (string, error) {
 	// Create the JWT token
 	token := jwt.New()
 
@@ -112,7 +112,7 @@ func generateWIT(serviceKey jwk.Key, issuerKey jwk.Key, subject, issuer, service
 	if err := headers.Set("alg", "EdDSA"); err != nil {
 		return "", fmt.Errorf("failed to set alg header: %w", err)
 	}
-	if err := headers.Set("kid", "issuer-key"); err != nil {
+	if err := headers.Set("kid", issuerKeyID); err != nil {
 		return "", fmt.Errorf("failed to set kid header: %w", err)
 	}
 
@@ -199,15 +199,6 @@ func jwkToString(key jwk.Key) (string, error) {
 	return string(finalJSON), nil
 }
 
-func printJWK(key jwk.Key) {
-	jwkStr, err := jwkToString(key)
-	if err != nil {
-		fmt.Printf("%v\n", err)
-		return
-	}
-	fmt.Println(jwkStr)
-}
-
 func writeToFile(filename, content string) error {
 	return os.WriteFile(filename, []byte(content), 0644)
 }
@@ -233,10 +224,10 @@ func main() {
 	expires := now + 300
 
 	// Generate WITs
-	svcAWIT, err := generateWIT(svcAKey, issuerKey, "wimse://example.com/svcA", "https://example.com/issuer", "svc-a-key", now, expires, fmt.Sprintf("wit-%d", time.Now().UnixNano()))
+	svcAWIT, err := generateWIT(svcAKey, issuerKey, "issuer-key", "wimse://example.com/svcA", "https://example.com/issuer", now, expires, fmt.Sprintf("wit-%d", time.Now().UnixNano()))
 	failIf(err, "Failed to generate service A WIT")
 
-	svcBWIT, err := generateWIT(svcBKey, issuerKey, "wimse://example.com/svcB", "https://example.com/issuer", "svc-b-key", now+2, expires+2, fmt.Sprintf("wit-%d", time.Now().UnixNano()))
+	svcBWIT, err := generateWIT(svcBKey, issuerKey, "issuer-key", "wimse://example.com/svcB", "https://example.com/issuer", now+2, expires+2, fmt.Sprintf("wit-%d", time.Now().UnixNano()))
 	failIf(err, "Failed to generate service B WIT")
 
 	// Create request with service A WIT
