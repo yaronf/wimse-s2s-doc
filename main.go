@@ -307,21 +307,26 @@ No ice cream today.
 
 	// Debug mode: decode the WIT tokens
 	if *debugFlag {
-		fmt.Println("\n" + strings.Repeat("=", 80))
+		fmt.Println()
 		fmt.Println("DEBUG: Decoding WIT tokens")
-		fmt.Println(strings.Repeat("=", 80))
+		fmt.Println()
 
-		fmt.Println("\n=== Service A WIT ===")
+		fmt.Println("=== Service A WIT ===")
 		decodeJWT(svcAWIT)
 
-		fmt.Println("\n=== Service B WIT ===")
+		fmt.Println()
+		fmt.Println("=== Service B WIT ===")
 		decodeJWT(svcBWIT)
 	}
 
+	// Print Service A JWK
+	fmt.Println()
+	fmt.Println("Service A JWK")
+	printJWK(svcAKey)
+
 	// Print Service B JWK for figure 15
-	fmt.Println("\n" + strings.Repeat("=", 80))
+	fmt.Println()
 	fmt.Println("Service B JWK (Figure 15)")
-	fmt.Println(strings.Repeat("=", 80))
 	printJWK(svcBKey)
 }
 
