@@ -20,12 +20,26 @@ This program generates:
 ## Usage
 
 ```bash
-# Generate examples
+# Generate examples and write to files in the 'out' directory
+# (automatically creates 'out' directory if needed)
 go run main.go
 
-# Generate examples with debug output showing decoded WITs
-go run main.go --debug
+# Generate examples and print to stdout
+go run main.go --stdout
+
+# Generate examples with debug output showing decoded WITs (stdout only)
+go run main.go --stdout --debug
 ```
+
+### Output Files
+
+By default (without `--stdout`), the program writes to these files in the `out` directory:
+- `sigs-request.txt.out` - HTTP request with message signature
+- `sigs-response.txt.out` - HTTP response with message signature  
+- `sigs-svca-jwk.txt` - Service A's JWK (including private key)
+- `sigs-svcb-jwk.txt` - Service B's JWK (including private key)
+
+The `out` directory will be created automatically if it doesn't exist.
 
 ## Related Specifications
 

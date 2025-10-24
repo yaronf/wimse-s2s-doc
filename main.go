@@ -174,19 +174,17 @@ func prettyPrint(data map[string]interface{}) {
 	fmt.Println(string(jsonBytes))
 }
 
-func printJWK(key jwk.Key) {
+func jwkToString(key jwk.Key) (string, error) {
 	// Convert the complete key (including private key material) to JSON
 	jsonBytes, err := json.MarshalIndent(key, "", "  ")
 	if err != nil {
-		fmt.Printf("Error marshaling JWK: %v\n", err)
-		return
+		return "", fmt.Errorf("error marshaling JWK: %w", err)
 	}
 
 	// Parse the JSON to add the alg field
 	var keyMap map[string]interface{}
 	if err := json.Unmarshal(jsonBytes, &keyMap); err != nil {
-		fmt.Printf("Error unmarshaling JWK: %v\n", err)
-		return
+		return "", fmt.Errorf("error unmarshaling JWK: %w", err)
 	}
 
 	// Add the alg field
@@ -195,16 +193,29 @@ func printJWK(key jwk.Key) {
 	// Marshal back to JSON
 	finalJSON, err := json.MarshalIndent(keyMap, "", "  ")
 	if err != nil {
-		fmt.Printf("Error marshaling final JWK: %v\n", err)
-		return
+		return "", fmt.Errorf("error marshaling final JWK: %w", err)
 	}
 
-	fmt.Println(string(finalJSON))
+	return string(finalJSON), nil
+}
+
+func printJWK(key jwk.Key) {
+	jwkStr, err := jwkToString(key)
+	if err != nil {
+		fmt.Printf("%v\n", err)
+		return
+	}
+	fmt.Println(jwkStr)
+}
+
+func writeToFile(filename, content string) error {
+	return os.WriteFile(filename, []byte(content), 0644)
 }
 
 func main() {
 	// Parse command line flags
 	debugFlag := flag.Bool("debug", false, "Enable debug mode to decode WIT tokens")
+	stdoutFlag := flag.Bool("stdout", false, "Print output to stdout instead of files")
 	flag.Parse()
 
 	// Generate all keys dynamically
@@ -268,8 +279,6 @@ No ice cream today.
 
 	reqStr, err := httputil.DumpRequest(req, true)
 	failIf(err, "Could not print request")
-	fmt.Println("Request:")
-	fmt.Print(string(reqStr))
 
 	// Sign the response with service B key
 	// Response signatures per draft-ietf-wimse-http-signature include:
@@ -302,32 +311,67 @@ No ice cream today.
 
 	resStr, err := httputil.DumpResponse(res, true)
 	failIf(err, "Could not print response")
-	fmt.Println("Response:")
-	fmt.Print(string(resStr))
 
-	// Debug mode: decode the WIT tokens
-	if *debugFlag {
-		fmt.Println()
-		fmt.Println("DEBUG: Decoding WIT tokens")
-		fmt.Println()
+	// Get JWK strings
+	svcAJWK, err := jwkToString(svcAKey)
+	failIf(err, "Failed to convert Service A JWK to string")
 
-		fmt.Println("=== Service A WIT ===")
-		decodeJWT(svcAWIT)
+	svcBJWK, err := jwkToString(svcBKey)
+	failIf(err, "Failed to convert Service B JWK to string")
 
+	// Output to stdout or files based on flag
+	if *stdoutFlag {
+		// Print to stdout
+		fmt.Println("Request:")
+		fmt.Print(string(reqStr))
+
+		fmt.Println("Response:")
+		fmt.Print(string(resStr))
+
+		// Debug mode: decode the WIT tokens
+		if *debugFlag {
+			fmt.Println()
+			fmt.Println("DEBUG: Decoding WIT tokens")
+			fmt.Println()
+
+			fmt.Println("=== Service A WIT ===")
+			decodeJWT(svcAWIT)
+
+			fmt.Println()
+			fmt.Println("=== Service B WIT ===")
+			decodeJWT(svcBWIT)
+		}
+
+		// Print Service A JWK
 		fmt.Println()
-		fmt.Println("=== Service B WIT ===")
-		decodeJWT(svcBWIT)
+		fmt.Println("Service A JWK")
+		fmt.Println(svcAJWK)
+
+		// Print Service B JWK for figure 15
+		fmt.Println()
+		fmt.Println("Service B JWK (Figure 15)")
+		fmt.Println(svcBJWK)
+	} else {
+		// Write to files in "out" directory
+		// Create "out" directory if it doesn't exist
+		err := os.MkdirAll("out", 0755)
+		failIf(err, "Failed to create 'out' directory")
+
+		// Write to files
+		err = writeToFile("out/sigs-request.txt.out", string(reqStr))
+		failIf(err, "Failed to write request to file")
+
+		err = writeToFile("out/sigs-response.txt.out", string(resStr))
+		failIf(err, "Failed to write response to file")
+
+		err = writeToFile("out/sigs-svca-jwk.txt", svcAJWK+"\n")
+		failIf(err, "Failed to write Service A JWK to file")
+
+		err = writeToFile("out/sigs-svcb-jwk.txt", svcBJWK+"\n")
+		failIf(err, "Failed to write Service B JWK to file")
+
+		fmt.Println("Output written to files in 'out' directory")
 	}
-
-	// Print Service A JWK
-	fmt.Println()
-	fmt.Println("Service A JWK")
-	printJWK(svcAKey)
-
-	// Print Service B JWK for figure 15
-	fmt.Println()
-	fmt.Println("Service B JWK (Figure 15)")
-	printJWK(svcBKey)
 }
 
 func failIf(err error, message string) {
