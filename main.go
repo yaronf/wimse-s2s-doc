@@ -1,5 +1,15 @@
 package main
 
+// This program generates examples for the WIMSE HTTP Signatures specification
+// (draft-ietf-wimse-http-signature) and the WIMSE Service-to-Service Protocol
+// (draft-ietf-wimse-s2s-protocol).
+//
+// The HTTP signatures are based on RFC 9421 (HTTP Message Signatures) with
+// WIMSE-specific extensions including:
+// - The "wimse-workload-to-workload" signature tag
+// - Signing of Workload-Identity-Token headers
+// - Use of JWS-based signatures with Ed25519 keys
+
 import (
 	"bufio"
 	"crypto/ed25519"
@@ -41,6 +51,13 @@ func generateEd25519Key(keyID string) (jwk.Key, error) {
 	return jwkKey, nil
 }
 
+// generateWIT creates a Workload Identity Token (WIT) as specified in
+// draft-ietf-wimse-s2s-protocol. A WIT is a JWT that binds a workload identity
+// to a cryptographic key through the "cnf" (confirmation) claim.
+//
+// The WIT is signed by the issuer and contains the workload's public key in the
+// cnf claim. This public key is later used to sign HTTP messages, creating a
+// proof-of-possession binding between the WIT and the HTTP requests/responses.
 func generateWIT(serviceKey jwk.Key, issuerKey jwk.Key, subject, issuer, serviceKeyID string, iat, exp int64, jti string) (string, error) {
 	// Create the JWT token
 	token := jwt.New()
@@ -52,27 +69,29 @@ func generateWIT(serviceKey jwk.Key, issuerKey jwk.Key, subject, issuer, service
 	token.Set("exp", exp)
 	token.Set("jti", jti)
 
-		// Create cnf claim with the service's public key
+	// Create cnf claim with the service's public key
+	// The cnf claim establishes proof-of-possession by binding the workload
+	// identity to the public key that will be used for HTTP message signing
 	// First, get the public key (remove private key material)
 	publicKey, err := serviceKey.PublicKey()
 	if err != nil {
 		return "", fmt.Errorf("failed to get public key: %w", err)
 	}
-	
+
 	// Convert to JSON
 	publicKeyJSON, err := json.Marshal(publicKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal public key: %w", err)
 	}
-	
+
 	var publicKeyMap map[string]interface{}
 	if err := json.Unmarshal(publicKeyJSON, &publicKeyMap); err != nil {
 		return "", fmt.Errorf("failed to unmarshal public key: %w", err)
 	}
-	
+
 	// Add the alg field to the JWK
 	publicKeyMap["alg"] = "EdDSA"
-	
+
 	cnf := map[string]interface{}{
 		"jwk": publicKeyMap,
 	}
@@ -162,17 +181,17 @@ func printJWK(key jwk.Key) {
 		fmt.Printf("Error marshaling JWK: %v\n", err)
 		return
 	}
-	
+
 	// Parse the JSON to add the alg field
 	var keyMap map[string]interface{}
 	if err := json.Unmarshal(jsonBytes, &keyMap); err != nil {
 		fmt.Printf("Error unmarshaling JWK: %v\n", err)
 		return
 	}
-	
+
 	// Add the alg field
 	keyMap["alg"] = "EdDSA"
-	
+
 	// Marshal back to JSON
 	finalJSON, err := json.MarshalIndent(keyMap, "", "  ")
 	if err != nil {
@@ -226,6 +245,11 @@ No ice cream today.
 `, svcBWIT)
 
 	// Sign the request with service A key
+	// This implements the HTTP Message Signatures specification from draft-ietf-wimse-http-signature
+	// which is based on RFC 9421 with WIMSE-specific extensions:
+	// - Uses "wimse-workload-to-workload" signature tag
+	// - Signs the Workload-Identity-Token header to bind the WIT to the message
+	// - Uses JWS format with Ed25519 (EdDSA) algorithm
 	config := httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
 		SetNonce("abcd1111").SignAlg(false).SetExpires(expires)
 	fields := httpsign.NewFields().AddHeaders("@method", "@request-target", "workload-identity-token").
@@ -244,10 +268,14 @@ No ice cream today.
 
 	reqStr, err := httputil.DumpRequest(req, true)
 	failIf(err, "Could not print request")
-	fmt.Println("Request:\n")
+	fmt.Println("Request:")
 	fmt.Print(string(reqStr))
 
 	// Sign the response with service B key
+	// Response signatures per draft-ietf-wimse-http-signature include:
+	// - The @status derived component
+	// - The Workload-Identity-Token header from the response
+	// - Request components (@method, @request-target) for binding response to request
 	config = httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
 		SetNonce("abcd2222").SignAlg(false).SetExpires(expires + 2)
 	fields = httpsign.NewFields().AddHeaders("@status", "workload-identity-token").
@@ -274,7 +302,7 @@ No ice cream today.
 
 	resStr, err := httputil.DumpResponse(res, true)
 	failIf(err, "Could not print response")
-	fmt.Println("Response:\n")
+	fmt.Println("Response:")
 	fmt.Print(string(resStr))
 
 	// Debug mode: decode the WIT tokens
