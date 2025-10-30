@@ -7,8 +7,8 @@ toolchain go1.24.1
 // replace github.com/yaronf/httpsign v0.2.2 => /Users/ysheffer/misc/golang/httpsign
 
 require (
-	github.com/lestrrat-go/jwx/v2 v2.0.21
-	github.com/yaronf/httpsign v0.3.0
+	github.com/lestrrat-go/jwx/v2 v2.1.2
+	github.com/yaronf/httpsign v0.3.3
 )
 
 require (
@@ -17,7 +17,7 @@ require (
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
-	github.com/lestrrat-go/httprc v1.0.5 // indirect
+	github.com/lestrrat-go/httprc v1.0.6 // indirect
 	github.com/lestrrat-go/iter v1.0.2 // indirect
 	github.com/lestrrat-go/option v1.0.1 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect

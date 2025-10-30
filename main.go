@@ -255,8 +255,8 @@ No ice cream today.
 	config := httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
 		SetNonce("abcd1111").SignAlg(false).SetExpires(expires)
 	fields := httpsign.NewFields().AddHeaders("@method", "@request-target", "workload-identity-token").
-		AddHeaderExt("Content-Type", true, false, false, false).
-		AddHeaderExt("Content-Digest", true, false, false, false)
+		AddHeaderOptional("Content-Type").
+		AddHeaderOptional("Content-Digest")
 	signer, err := httpsign.NewJWSSigner(jwa.EdDSA, svcAKey, config, *fields)
 	failIf(err, "Failed to create request signer")
 
@@ -279,8 +279,8 @@ No ice cream today.
 	config = httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
 		SetNonce("abcd2222").SignAlg(false).SetExpires(expires + 2)
 	fields = httpsign.NewFields().AddHeaders("@status", "workload-identity-token").
-		AddHeaderExt("Content-Type", true, false, false, false).
-		AddHeaderExt("Content-Digest", true, false, false, false).
+		AddHeaderOptional("Content-Type").
+		AddHeaderOptional("Content-Digest").
 		AddHeaderExt("@method", false, false, true, false).
 		AddHeaderExt("@request-target", false, false, true, false)
 	signer, err = httpsign.NewJWSSigner(jwa.EdDSA, svcBKey, config, *fields)
