@@ -34,8 +34,8 @@ go run main.go --stdout --debug
 ### Output Files
 
 By default (without `--stdout`), the program writes to these files in the `out` directory:
-- `sigs-request.txt.out` - HTTP request with message signature
-- `sigs-response.txt.out` - HTTP response with message signature  
+- `sigs-request.txt` - HTTP request with message signature
+- `sigs-response.txt` - HTTP response with message signature  
 - `sigs-svca-jwk.txt` - Service A's JWK (including private key)
 - `sigs-svcb-jwk.txt` - Service B's JWK (including private key)
 

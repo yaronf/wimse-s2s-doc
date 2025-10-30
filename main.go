@@ -349,10 +349,10 @@ No ice cream today.
 		failIf(err, "Failed to create 'out' directory")
 
 		// Write to files
-		err = writeToFile("out/sigs-request.txt.out", string(reqStr))
+		err = writeToFile("out/sigs-request.txt", string(reqStr))
 		failIf(err, "Failed to write request to file")
 
-		err = writeToFile("out/sigs-response.txt.out", string(resStr))
+		err = writeToFile("out/sigs-response.txt", string(resStr))
 		failIf(err, "Failed to write response to file")
 
 		err = writeToFile("out/sigs-svca-jwk.txt", svcAJWK+"\n")
