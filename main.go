@@ -233,6 +233,7 @@ func main() {
 	// Create request with service A WIT
 	request := fmt.Sprintf(`GET /gimme-ice-cream?flavor=vanilla HTTP/1.1
 Host: example.com
+Wimse-Audience: https://example.com/gimme-ice-cream
 Workload-Identity-Token: %s
 
 `, svcAWIT)
@@ -250,11 +251,12 @@ No ice cream today.
 	// This implements the HTTP Message Signatures specification from draft-ietf-wimse-http-signature
 	// which is based on RFC 9421 with WIMSE-specific extensions:
 	// - Uses "wimse-workload-to-workload" signature tag
+	// - Signs the Wimse-Audience header to prevent message replay to unintended recipients
 	// - Signs the Workload-Identity-Token header to bind the WIT to the message
 	// - Uses JWS format with Ed25519 (EdDSA) algorithm
 	config := httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
 		SetNonce("abcd1111").SignAlg(false).SetExpires(expires)
-	fields := httpsign.NewFields().AddHeaders("@method", "@request-target", "workload-identity-token").
+	fields := httpsign.NewFields().AddHeaders("@method", "@request-target", "wimse-audience", "workload-identity-token").
 		AddHeaderOptional("Content-Type").
 		AddHeaderOptional("Content-Digest")
 	signer, err := httpsign.NewJWSSigner(jwa.EdDSA, svcAKey, config, *fields)
