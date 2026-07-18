@@ -254,8 +254,9 @@ No ice cream today.
 	// - Uses the wimse-aud signature parameter to prevent message replay to unintended recipients
 	// - Signs the Workload-Identity-Token header to bind the WIT to the message
 	// - Uses JWS format with Ed25519 (EdDSA) algorithm
+	reqNonce := "abcd1111"
 	config := httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
-		SetNonce("abcd1111").SignAlg(false).SetExpires(expires).
+		SetNonce(reqNonce).SignAlg(false).SetExpires(expires).
 		AddCustomParam("wimse-aud", "https://svcb.example.com/gimme-ice-cream")
 	fields := httpsign.NewFields().AddHeaders("@method", "@request-target", "workload-identity-token").
 		AddHeaderOptional("Content-Type").
@@ -279,8 +280,10 @@ No ice cream today.
 	// - The @status derived component
 	// - The Workload-Identity-Token header from the response
 	// - Request components (@method, @request-target) for binding response to request
+	// - The wimse-req-nonce signature parameter (request nonce) for request/response binding
 	config = httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
-		SetNonce("abcd2222").SignAlg(false).SetExpires(expires + 2)
+		SetNonce("abcd2222").SignAlg(false).SetExpires(expires + 2).
+		AddCustomParam("wimse-req-nonce", reqNonce)
 	fields = httpsign.NewFields().AddHeaders("@status", "workload-identity-token").
 		AddHeaderOptional("Content-Type").
 		AddHeaderOptional("Content-Digest").
@@ -293,7 +296,7 @@ No ice cream today.
 	failIf(err, "Failed to read response")
 
 	if res.Body != nil && res.Header.Get("Content-Digest") == "" {
-		header, err := httpsign.GenerateContentDigestHeader(&req.Body, []string{httpsign.DigestSha256})
+		header, err := httpsign.GenerateContentDigestHeader(&res.Body, []string{httpsign.DigestSha256})
 		failIf(err, "Could not generate digest")
 		res.Header.Set("Content-Digest", header)
 	}
