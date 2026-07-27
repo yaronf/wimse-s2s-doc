@@ -252,12 +252,14 @@ No ice cream today.
 	// which is based on RFC 9421 with WIMSE-specific extensions:
 	// - Uses "wimse-workload-to-workload" signature tag
 	// - Uses the wimse-aud signature parameter to prevent message replay to unintended recipients
+	// - Uses wimse-sign-response to require a signed response
 	// - Signs the Workload-Identity-Token header to bind the WIT to the message
 	// - Uses JWS format with Ed25519 (EdDSA) algorithm
 	reqNonce := "abcd1111"
 	config := httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
 		SetNonce(reqNonce).SignAlg(false).SetExpires(expires).
-		AddCustomParam("wimse-aud", "https://svcb.example.com/gimme-ice-cream")
+		AddCustomParam("wimse-aud", "https://svcb.example.com/gimme-ice-cream").
+		AddCustomParam("wimse-sign-response", true)
 	fields := httpsign.NewFields().AddHeaders("@method", "@request-target", "workload-identity-token").
 		AddHeaderOptional("Content-Type").
 		AddHeaderOptional("Content-Digest")
