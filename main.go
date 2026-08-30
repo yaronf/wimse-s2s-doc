@@ -203,6 +203,90 @@ func writeToFile(filename, content string) error {
 	return os.WriteFile(filename, []byte(content), 0644)
 }
 
+const wimseTag = "wimse-workload-to-workload"
+
+// findSignatureByTag selects the signature label whose tag matches wantTag.
+// Per draft-ietf-wimse-http-signature, recipients MUST select by tag, not by label;
+// zero or multiple matches are rejected.
+func findSignatureByTag(names []string, detailsFn func(string) (*httpsign.MessageDetails, error), wantTag string) (string, error) {
+	var found []string
+	for _, name := range names {
+		details, err := detailsFn(name)
+		if err != nil {
+			return "", fmt.Errorf("details for %q: %w", name, err)
+		}
+		if details.Tag != nil && *details.Tag == wantTag {
+			found = append(found, name)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return "", fmt.Errorf("no signature with tag %q", wantTag)
+	case 1:
+		return found[0], nil
+	default:
+		return "", fmt.Errorf("multiple signatures with tag %q", wantTag)
+	}
+}
+
+func verifyRequestByTag(req *http.Request, pubKey jwk.Key, fields httpsign.Fields) (string, *httpsign.MessageDetails, error) {
+	names, err := httpsign.RequestSignatureNames(req, false)
+	if err != nil {
+		return "", nil, err
+	}
+	sigName, err := findSignatureByTag(names, func(name string) (*httpsign.MessageDetails, error) {
+		return httpsign.RequestDetails(name, req)
+	}, wimseTag)
+	if err != nil {
+		return "", nil, err
+	}
+
+	vconfig := httpsign.NewVerifyConfig().SetAllowedTags([]string{wimseTag})
+	verifier, err := httpsign.NewJWSVerifier(jwa.EdDSA, pubKey, vconfig, fields)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := httpsign.VerifyRequest(sigName, *verifier, req); err != nil {
+		return "", nil, err
+	}
+	details, err := httpsign.RequestDetails(sigName, req)
+	if err != nil {
+		return "", nil, err
+	}
+	return sigName, details, nil
+}
+
+func verifyResponseByTag(res *http.Response, req *http.Request, pubKey jwk.Key, fields httpsign.Fields, wantReqNonce string) (string, *httpsign.MessageDetails, error) {
+	names, err := httpsign.ResponseSignatureNames(res, false)
+	if err != nil {
+		return "", nil, err
+	}
+	sigName, err := findSignatureByTag(names, func(name string) (*httpsign.MessageDetails, error) {
+		return httpsign.ResponseDetails(name, res)
+	}, wimseTag)
+	if err != nil {
+		return "", nil, err
+	}
+
+	vconfig := httpsign.NewVerifyConfig().SetAllowedTags([]string{wimseTag})
+	verifier, err := httpsign.NewJWSVerifier(jwa.EdDSA, pubKey, vconfig, fields)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := httpsign.VerifyResponse(sigName, *verifier, res, req); err != nil {
+		return "", nil, err
+	}
+	details, err := httpsign.ResponseDetails(sigName, res)
+	if err != nil {
+		return "", nil, err
+	}
+	got, ok := details.CustomParams["wimse-req-nonce"].(string)
+	if !ok || got != wantReqNonce {
+		return "", nil, fmt.Errorf("wimse-req-nonce mismatch: got %v, want %q", details.CustomParams["wimse-req-nonce"], wantReqNonce)
+	}
+	return sigName, details, nil
+}
+
 func main() {
 	// Parse command line flags
 	debugFlag := flag.Bool("debug", false, "Enable debug mode to decode WIT tokens")
@@ -256,11 +340,11 @@ No ice cream today.
 	// - Signs the Workload-Identity-Token header to bind the WIT to the message
 	// - Uses JWS format with Ed25519 (EdDSA) algorithm
 	reqNonce := "abcd1111"
-	config := httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
+	config := httpsign.NewSignConfig().SetTag(wimseTag).
 		SetNonce(reqNonce).SignAlg(false).SetExpires(expires).
 		AddCustomParam("wimse-aud", "https://svcb.example.com/gimme-ice-cream").
 		AddCustomParam("wimse-sign-response", true)
-	fields := httpsign.NewFields().AddHeaders("@method", "@request-target", "workload-identity-token").
+	fields := httpsign.NewFields().AddHeaders("@method", "@path", "@query", "workload-identity-token").
 		AddHeaderOptional("Content-Type").
 		AddHeaderOptional("Content-Digest")
 	signer, err := httpsign.NewJWSSigner(jwa.EdDSA, svcAKey, config, *fields)
@@ -269,10 +353,17 @@ No ice cream today.
 	req, err := http.ReadRequest(bufio.NewReader(strings.NewReader(request)))
 	failIf(err, "Failed to read request")
 
-	signatureInput, signature, err := httpsign.SignRequest("wimse", *signer, req)
+	signatureInput, signature, err := httpsign.SignRequest("sig1", *signer, req)
 	failIf(err, "Failed to create request signature")
 	req.Header.Set("Signature", signature)
 	req.Header.Set("Signature-Input", signatureInput)
+
+	// Select by tag (not label) and verify — demonstrates PR #302 recipient behavior.
+	svcAPub, err := svcAKey.PublicKey()
+	failIf(err, "Failed to get service A public key")
+	reqSigName, reqDetails, err := verifyRequestByTag(req, svcAPub, *fields)
+	failIf(err, "Failed to verify request signature")
+	fmt.Printf("Verified request signature %q (tag=%q)\n", reqSigName, *reqDetails.Tag)
 
 	reqStr, err := httputil.DumpRequest(req, true)
 	failIf(err, "Could not print request")
@@ -281,16 +372,17 @@ No ice cream today.
 	// Response signatures per draft-ietf-wimse-http-signature include:
 	// - The @status derived component
 	// - The Workload-Identity-Token header from the response
-	// - Request components (@method, @request-target) for binding response to request
+	// - Request components (@method, @path, @query) for binding response to request
 	// - The wimse-req-nonce signature parameter (request nonce) for request/response binding
-	config = httpsign.NewSignConfig().SetTag("wimse-workload-to-workload").
+	config = httpsign.NewSignConfig().SetTag(wimseTag).
 		SetNonce("abcd2222").SignAlg(false).SetExpires(expires + 2).
 		AddCustomParam("wimse-req-nonce", reqNonce)
 	fields = httpsign.NewFields().AddHeaders("@status", "workload-identity-token").
 		AddHeaderOptional("Content-Type").
 		AddHeaderOptional("Content-Digest").
 		AddHeaderExt("@method", false, false, true, false).
-		AddHeaderExt("@request-target", false, false, true, false)
+		AddHeaderExt("@path", false, false, true, false).
+		AddHeaderExt("@query", false, false, true, false)
 	signer, err = httpsign.NewJWSSigner(jwa.EdDSA, svcBKey, config, *fields)
 	failIf(err, "Failed to create response signer")
 
@@ -303,10 +395,17 @@ No ice cream today.
 		res.Header.Set("Content-Digest", header)
 	}
 
-	signatureInput, signature, err = httpsign.SignResponse("wimse", *signer, res, req)
+	signatureInput, signature, err = httpsign.SignResponse("sig1", *signer, res, req)
 	failIf(err, "Failed to create response signature")
 	res.Header.Set("Signature", signature)
 	res.Header.Set("Signature-Input", signatureInput)
+
+	svcBPub, err := svcBKey.PublicKey()
+	failIf(err, "Failed to get service B public key")
+	resSigName, resDetails, err := verifyResponseByTag(res, req, svcBPub, *fields, reqNonce)
+	failIf(err, "Failed to verify response signature")
+	fmt.Printf("Verified response signature %q (tag=%q, wimse-req-nonce=%q)\n",
+		resSigName, *resDetails.Tag, resDetails.CustomParams["wimse-req-nonce"])
 
 	resStr, err := httputil.DumpResponse(res, true)
 	failIf(err, "Could not print response")
