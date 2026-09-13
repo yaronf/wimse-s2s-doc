@@ -1,3 +1,5 @@
 /.idea/
 /out/
 /wimse-s2s-doc
+/.deps/
+/.tools/

@@ -24,29 +24,31 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwa"
-	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/lestrrat-go/jwx/v2/jws"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwa"
+	"github.com/lestrrat-go/jwx/v4/jwk"
+	"github.com/lestrrat-go/jwx/v4/jws"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 	"github.com/yaronf/httpsign"
 )
 
 // generateEd25519Key generates a new Ed25519 key pair and returns it as a JWK
 func generateEd25519Key(keyID string) (jwk.Key, error) {
-	// Generate a random Ed25519 key pair
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Ed25519 key: %w", err)
 	}
 
-	// Convert to JWK format
-	jwkKey, err := jwk.FromRaw(privateKey)
+	jwkKey, err := jwk.Import[jwk.Key](privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert key to JWK: %w", err)
 	}
 
-	// Set the key ID
-	jwkKey.Set(jwk.KeyIDKey, keyID)
+	if err := jwkKey.Set(jwk.KeyIDKey, keyID); err != nil {
+		return nil, fmt.Errorf("failed to set kid: %w", err)
+	}
+	if err := jwkKey.Set(jwk.AlgorithmKey, jwa.EdDSA()); err != nil {
+		return nil, fmt.Errorf("failed to set alg: %w", err)
+	}
 
 	return jwkKey, nil
 }
@@ -54,70 +56,46 @@ func generateEd25519Key(keyID string) (jwk.Key, error) {
 // generateWIT creates a Workload Identity Token (WIT) as specified in
 // draft-ietf-wimse-s2s-protocol. A WIT is a JWT that binds a workload identity
 // to a cryptographic key through the "cnf" (confirmation) claim.
-//
-// The WIT is signed by the issuer and contains the workload's public key in the
-// cnf claim. This public key is later used to sign HTTP messages, creating a
-// proof-of-possession binding between the WIT and the HTTP requests/responses.
 func generateWIT(serviceKey jwk.Key, issuerKey jwk.Key, issuerKeyID, subject, issuer string, iat, exp int64, jti string) (string, error) {
-	// Create the JWT token
-	token := jwt.New()
+	token, err := jwt.NewBuilder().
+		Subject(subject).
+		Issuer(issuer).
+		IssuedAt(time.Unix(iat, 0)).
+		Expiration(time.Unix(exp, 0)).
+		JwtID(jti).
+		Build()
+	if err != nil {
+		return "", fmt.Errorf("failed to build WIT claims: %w", err)
+	}
 
-	// Set standard claims
-	token.Set("sub", subject)
-	token.Set("iss", issuer)
-	token.Set("iat", iat)
-	token.Set("exp", exp)
-	token.Set("jti", jti)
-
-	// Create cnf claim with the service's public key
-	// The cnf claim establishes proof-of-possession by binding the workload
-	// identity to the public key that will be used for HTTP message signing
-	// First, get the public key (remove private key material)
 	publicKey, err := serviceKey.PublicKey()
 	if err != nil {
 		return "", fmt.Errorf("failed to get public key: %w", err)
 	}
 
-	// Convert to JSON
 	publicKeyJSON, err := json.Marshal(publicKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal public key: %w", err)
 	}
 
-	var publicKeyMap map[string]interface{}
+	var publicKeyMap map[string]any
 	if err := json.Unmarshal(publicKeyJSON, &publicKeyMap); err != nil {
 		return "", fmt.Errorf("failed to unmarshal public key: %w", err)
 	}
 
-	// Add the alg field to the JWK
-	publicKeyMap["alg"] = "EdDSA"
-
-	cnf := map[string]interface{}{
-		"jwk": publicKeyMap,
-	}
-	token.Set("cnf", cnf)
-
-	// Sign the token with the issuer key and set the correct typ header
-	// First serialize the token to JSON
-	tokenJSON, err := json.Marshal(token)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal token: %w", err)
+	if err := token.Set("cnf", map[string]any{"jwk": publicKeyMap}); err != nil {
+		return "", fmt.Errorf("failed to set cnf claim: %w", err)
 	}
 
-	// Create headers with the correct typ
 	headers := jws.NewHeaders()
-	if err := headers.Set("typ", "wit+jwt"); err != nil {
+	if err := headers.Set(jws.TypeKey, "wit+jwt"); err != nil {
 		return "", fmt.Errorf("failed to set typ header: %w", err)
 	}
-	if err := headers.Set("alg", "EdDSA"); err != nil {
-		return "", fmt.Errorf("failed to set alg header: %w", err)
-	}
-	if err := headers.Set("kid", issuerKeyID); err != nil {
+	if err := headers.Set(jws.KeyIDKey, issuerKeyID); err != nil {
 		return "", fmt.Errorf("failed to set kid header: %w", err)
 	}
 
-	// Sign using jws.Sign directly
-	signed, err := jws.Sign(tokenJSON, jws.WithKey(jwa.EdDSA, issuerKey, jws.WithProtectedHeaders(headers)))
+	signed, err := jwt.Sign(token, jwt.WithKey(jwa.EdDSA(), issuerKey, jws.WithProtectedHeaders(headers)))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign WIT: %w", err)
 	}
@@ -132,27 +110,25 @@ func decodeJWT(token string) {
 		return
 	}
 
-	// Decode header
 	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
 		fmt.Printf("Error decoding header: %v\n", err)
 		return
 	}
 
-	var header map[string]interface{}
+	var header map[string]any
 	if err := json.Unmarshal(headerBytes, &header); err != nil {
 		fmt.Printf("Error parsing header: %v\n", err)
 		return
 	}
 
-	// Decode payload
 	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		fmt.Printf("Error decoding payload: %v\n", err)
 		return
 	}
 
-	var payload map[string]interface{}
+	var payload map[string]any
 	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
 		fmt.Printf("Error parsing payload: %v\n", err)
 		return
@@ -165,7 +141,7 @@ func decodeJWT(token string) {
 	prettyPrint(payload)
 }
 
-func prettyPrint(data map[string]interface{}) {
+func prettyPrint(data map[string]any) {
 	jsonBytes, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		fmt.Printf("Error pretty printing: %v\n", err)
@@ -175,28 +151,11 @@ func prettyPrint(data map[string]interface{}) {
 }
 
 func jwkToString(key jwk.Key) (string, error) {
-	// Convert the complete key (including private key material) to JSON
 	jsonBytes, err := json.MarshalIndent(key, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("error marshaling JWK: %w", err)
 	}
-
-	// Parse the JSON to add the alg field
-	var keyMap map[string]interface{}
-	if err := json.Unmarshal(jsonBytes, &keyMap); err != nil {
-		return "", fmt.Errorf("error unmarshaling JWK: %w", err)
-	}
-
-	// Add the alg field
-	keyMap["alg"] = "EdDSA"
-
-	// Marshal back to JSON
-	finalJSON, err := json.MarshalIndent(keyMap, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("error marshaling final JWK: %w", err)
-	}
-
-	return string(finalJSON), nil
+	return string(jsonBytes), nil
 }
 
 func writeToFile(filename, content string) error {
@@ -205,95 +164,57 @@ func writeToFile(filename, content string) error {
 
 const wimseTag = "wimse-workload-to-workload"
 
-// findSignatureByTag selects the signature label whose tag matches wantTag.
-// Per draft-ietf-wimse-http-signature, recipients MUST select by tag, not by label;
-// zero or multiple matches are rejected.
-func findSignatureByTag(names []string, detailsFn func(string) (*httpsign.MessageDetails, error), wantTag string) (string, error) {
-	var found []string
-	for _, name := range names {
-		details, err := detailsFn(name)
-		if err != nil {
-			return "", fmt.Errorf("details for %q: %w", name, err)
-		}
-		if details.Tag != nil && *details.Tag == wantTag {
-			found = append(found, name)
-		}
-	}
-	switch len(found) {
-	case 0:
-		return "", fmt.Errorf("no signature with tag %q", wantTag)
-	case 1:
-		return found[0], nil
-	default:
-		return "", fmt.Errorf("multiple signatures with tag %q", wantTag)
-	}
-}
-
 func verifyRequestByTag(req *http.Request, pubKey jwk.Key, fields httpsign.Fields) (string, *httpsign.MessageDetails, error) {
-	names, err := httpsign.RequestSignatureNames(req, false)
-	if err != nil {
-		return "", nil, err
-	}
-	sigName, err := findSignatureByTag(names, func(name string) (*httpsign.MessageDetails, error) {
-		return httpsign.RequestDetails(name, req)
-	}, wimseTag)
+	details, err := httpsign.RequestDetailsByTag(req, wimseTag)
 	if err != nil {
 		return "", nil, err
 	}
 
+	allowed, err := httpsign.NewJWSAlgAllowlist(jwa.EdDSA())
+	if err != nil {
+		return "", nil, err
+	}
 	vconfig := httpsign.NewVerifyConfig().SetAllowedTags([]string{wimseTag})
-	verifier, err := httpsign.NewJWSVerifier(jwa.EdDSA, pubKey, vconfig, fields)
+	verifier, err := httpsign.NewJWSVerifier(allowed, pubKey, vconfig, fields)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := httpsign.VerifyRequest(sigName, *verifier, req); err != nil {
+	if err := httpsign.VerifyRequest(details.Label, *verifier, req); err != nil {
 		return "", nil, err
 	}
-	details, err := httpsign.RequestDetails(sigName, req)
-	if err != nil {
-		return "", nil, err
-	}
-	return sigName, details, nil
+	return details.Label, details, nil
 }
 
 func verifyResponseByTag(res *http.Response, req *http.Request, pubKey jwk.Key, fields httpsign.Fields, wantReqNonce string) (string, *httpsign.MessageDetails, error) {
-	names, err := httpsign.ResponseSignatureNames(res, false)
-	if err != nil {
-		return "", nil, err
-	}
-	sigName, err := findSignatureByTag(names, func(name string) (*httpsign.MessageDetails, error) {
-		return httpsign.ResponseDetails(name, res)
-	}, wimseTag)
+	details, err := httpsign.ResponseDetailsByTag(res, wimseTag)
 	if err != nil {
 		return "", nil, err
 	}
 
+	allowed, err := httpsign.NewJWSAlgAllowlist(jwa.EdDSA())
+	if err != nil {
+		return "", nil, err
+	}
 	vconfig := httpsign.NewVerifyConfig().SetAllowedTags([]string{wimseTag})
-	verifier, err := httpsign.NewJWSVerifier(jwa.EdDSA, pubKey, vconfig, fields)
+	verifier, err := httpsign.NewJWSVerifier(allowed, pubKey, vconfig, fields)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := httpsign.VerifyResponse(sigName, *verifier, res, req); err != nil {
-		return "", nil, err
-	}
-	details, err := httpsign.ResponseDetails(sigName, res)
-	if err != nil {
+	if err := httpsign.VerifyResponse(details.Label, *verifier, res, req); err != nil {
 		return "", nil, err
 	}
 	got, ok := details.CustomParams["wimse-req-nonce"].(string)
 	if !ok || got != wantReqNonce {
 		return "", nil, fmt.Errorf("wimse-req-nonce mismatch: got %v, want %q", details.CustomParams["wimse-req-nonce"], wantReqNonce)
 	}
-	return sigName, details, nil
+	return details.Label, details, nil
 }
 
 func main() {
-	// Parse command line flags
 	debugFlag := flag.Bool("debug", false, "Enable debug mode to decode WIT tokens")
 	stdoutFlag := flag.Bool("stdout", false, "Print output to stdout instead of files")
 	flag.Parse()
 
-	// Generate all keys dynamically
 	svcAKey, err := generateEd25519Key("svc-a-key")
 	failIf(err, "Could not generate service A key")
 
@@ -303,26 +224,21 @@ func main() {
 	issuerKey, err := generateEd25519Key("issuer-key")
 	failIf(err, "Could not generate issuer key")
 
-	// Generate timestamps
 	now := time.Now().Unix()
 	expires := now + 300
 
-	// Generate WITs
 	svcAWIT, err := generateWIT(svcAKey, issuerKey, "issuer-key", "wimse://example.com/svcA", "https://example.com/issuer", now, expires, fmt.Sprintf("wit-%d", time.Now().UnixNano()))
 	failIf(err, "Failed to generate service A WIT")
 
 	svcBWIT, err := generateWIT(svcBKey, issuerKey, "issuer-key", "wimse://example.com/svcB", "https://example.com/issuer", now+2, expires+2, fmt.Sprintf("wit-%d", time.Now().UnixNano()))
 	failIf(err, "Failed to generate service B WIT")
 
-	// Create request with service A WIT
-	// Service A is calling Service B, so the Host is svcb.example.com
 	request := fmt.Sprintf(`GET /gimme-ice-cream?flavor=vanilla HTTP/1.1
 Host: svcb.example.com
 Workload-Identity-Token: %s
 
 `, svcAWIT)
 
-	// Create response with service B WIT
 	response := fmt.Sprintf(`HTTP/1.1 404 Not Found
 Workload-Identity-Token: %s
 Content-Type: text/plain
@@ -331,14 +247,6 @@ No ice cream today.
 
 `, svcBWIT)
 
-	// Sign the request with service A key
-	// This implements the HTTP Message Signatures specification from draft-ietf-wimse-http-signature
-	// which is based on RFC 9421 with WIMSE-specific extensions:
-	// - Uses "wimse-workload-to-workload" signature tag
-	// - Uses the wimse-aud signature parameter to prevent message replay to unintended recipients
-	// - Uses wimse-sign-response to require a signed response
-	// - Signs the Workload-Identity-Token header to bind the WIT to the message
-	// - Uses JWS format with Ed25519 (EdDSA) algorithm
 	reqNonce := "abcd1111"
 	config := httpsign.NewSignConfig().SetTag(wimseTag).
 		SetNonce(reqNonce).SignAlg(false).SetExpires(expires).
@@ -347,7 +255,7 @@ No ice cream today.
 	fields := httpsign.NewFields().AddHeaders("@method", "@path", "@query", "workload-identity-token").
 		AddHeaderOptional("Content-Type").
 		AddHeaderOptional("Content-Digest")
-	signer, err := httpsign.NewJWSSigner(jwa.EdDSA, svcAKey, config, *fields)
+	signer, err := httpsign.NewJWSSignerFromJWK(svcAKey, config, *fields)
 	failIf(err, "Failed to create request signer")
 
 	req, err := http.ReadRequest(bufio.NewReader(strings.NewReader(request)))
@@ -358,7 +266,6 @@ No ice cream today.
 	req.Header.Set("Signature", signature)
 	req.Header.Set("Signature-Input", signatureInput)
 
-	// Select by tag (not label) and verify — demonstrates PR #302 recipient behavior.
 	svcAPub, err := svcAKey.PublicKey()
 	failIf(err, "Failed to get service A public key")
 	reqSigName, reqDetails, err := verifyRequestByTag(req, svcAPub, *fields)
@@ -368,22 +275,16 @@ No ice cream today.
 	reqStr, err := httputil.DumpRequest(req, true)
 	failIf(err, "Could not print request")
 
-	// Sign the response with service B key
-	// Response signatures per draft-ietf-wimse-http-signature include:
-	// - The @status derived component
-	// - The Workload-Identity-Token header from the response
-	// - Request components (@method, @path, @query) for binding response to request
-	// - The wimse-req-nonce signature parameter (request nonce) for request/response binding
 	config = httpsign.NewSignConfig().SetTag(wimseTag).
 		SetNonce("abcd2222").SignAlg(false).SetExpires(expires + 2).
 		AddCustomParam("wimse-req-nonce", reqNonce)
 	fields = httpsign.NewFields().AddHeaders("@status", "workload-identity-token").
 		AddHeaderOptional("Content-Type").
 		AddHeaderOptional("Content-Digest").
-		AddHeaderExt("@method", false, false, true, false).
-		AddHeaderExt("@path", false, false, true, false).
-		AddHeaderExt("@query", false, false, true, false)
-	signer, err = httpsign.NewJWSSigner(jwa.EdDSA, svcBKey, config, *fields)
+		AddRequestComponent("@method").
+		AddRequestComponent("@path").
+		AddRequestComponent("@query")
+	signer, err = httpsign.NewJWSSignerFromJWK(svcBKey, config, *fields)
 	failIf(err, "Failed to create response signer")
 
 	res, err := http.ReadResponse(bufio.NewReader(strings.NewReader(response)), req)
@@ -410,23 +311,19 @@ No ice cream today.
 	resStr, err := httputil.DumpResponse(res, true)
 	failIf(err, "Could not print response")
 
-	// Get JWK strings
 	svcAJWK, err := jwkToString(svcAKey)
 	failIf(err, "Failed to convert Service A JWK to string")
 
 	svcBJWK, err := jwkToString(svcBKey)
 	failIf(err, "Failed to convert Service B JWK to string")
 
-	// Output to stdout or files based on flag
 	if *stdoutFlag {
-		// Print to stdout
 		fmt.Println("Request:")
 		fmt.Print(string(reqStr))
 
 		fmt.Println("Response:")
 		fmt.Print(string(resStr))
 
-		// Debug mode: decode the WIT tokens
 		if *debugFlag {
 			fmt.Println()
 			fmt.Println("DEBUG: Decoding WIT tokens")
@@ -440,22 +337,17 @@ No ice cream today.
 			decodeJWT(svcBWIT)
 		}
 
-		// Print Service A JWK
 		fmt.Println()
 		fmt.Println("Service A JWK")
 		fmt.Println(svcAJWK)
 
-		// Print Service B JWK for figure 15
 		fmt.Println()
 		fmt.Println("Service B JWK (Figure 15)")
 		fmt.Println(svcBJWK)
 	} else {
-		// Write to files in "out" directory
-		// Create "out" directory if it doesn't exist
 		err := os.MkdirAll("out", 0755)
 		failIf(err, "Failed to create 'out' directory")
 
-		// Write to files
 		err = writeToFile("out/sigs-request.txt", string(reqStr))
 		failIf(err, "Failed to write request to file")
 
@@ -474,7 +366,7 @@ No ice cream today.
 
 func failIf(err error, message string) {
 	if err != nil {
-		fmt.Printf("%s: %s", message, err)
+		fmt.Printf("%s: %s\n", message, err)
 		os.Exit(1)
 	}
 }
