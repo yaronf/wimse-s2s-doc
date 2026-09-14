@@ -340,7 +340,7 @@ Content-Length: %d
 
 	fmt.Println("=== ES256: svcB → svcC ===")
 	bc := signExchange(bcReq, bcRes, svcBKey, svcCKey,
-		"https://svcc.example.com/inventory/cones", "abcd3333", "abcd4444", expires+4)
+		"https://svcc.example.com/inventory/cones", "abcd3333", "abcd4444", expires+2)
 
 	svcAJWK := jwkToString(svcAKey)
 	svcBJWK := jwkToString(svcBKey)
