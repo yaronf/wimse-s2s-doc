@@ -287,6 +287,7 @@ func signExchange(
 func main() {
 	debugFlag := flag.Bool("debug", false, "Enable debug mode to decode WIT tokens")
 	stdoutFlag := flag.Bool("stdout", false, "Print output to stdout instead of files")
+	fastFlag := flag.Bool("fast", false, "Also generate draft-sheffer-wimse-fast-httpsig handshake and session examples")
 	flag.Parse()
 
 	svcAKey := generateEd25519Key("svc-a-key")
@@ -342,6 +343,15 @@ Content-Length: %d
 	bc := signExchange(bcReq, bcRes, svcBKey, svcCKey,
 		"https://svcc.example.com/inventory/cones", "abcd3333", "abcd4444", expires+2)
 
+	var fast fastExamples
+	if *fastFlag {
+		fmt.Println("=== Fast HTTPSig: handshake + session (svcA → svcB) ===")
+		fast = generateFastExamples(svcAKey, svcBKey, svcAWIT, svcBWIT,
+			"https://svcb.example.com/gimme-ice-cream",
+			"fast1111", "fast2222", "fast3333", "fast4444",
+			expires, *debugFlag)
+	}
+
 	svcAJWK := jwkToString(svcAKey)
 	svcBJWK := jwkToString(svcBKey)
 	svcCJWK := jwkToString(svcCKey)
@@ -355,6 +365,17 @@ Content-Length: %d
 		fmt.Print(string(bc.reqDump))
 		fmt.Println("Response (svcC → svcB):")
 		fmt.Print(string(bc.resDump))
+
+		if *fastFlag {
+			fmt.Println("Fast handshake request:")
+			fmt.Print(string(fast.hsReqDump))
+			fmt.Println("Fast handshake response:")
+			fmt.Print(string(fast.hsResDump))
+			fmt.Println("Fast session request:")
+			fmt.Print(string(fast.sessReqDump))
+			fmt.Println("Fast session response:")
+			fmt.Print(string(fast.sessResDump))
+		}
 
 		if *debugFlag {
 			fmt.Println()
@@ -390,6 +411,13 @@ Content-Length: %d
 		failIf(writeToFile("out/sigs-svca-jwk.txt", svcAJWK+"\n"), "Failed to write Service A JWK")
 		failIf(writeToFile("out/sigs-svcb-jwk.txt", svcBJWK+"\n"), "Failed to write Service B JWK")
 		failIf(writeToFile("out/sigs-svcc-jwk.txt", svcCJWK+"\n"), "Failed to write Service C JWK")
+
+		if *fastFlag {
+			failIf(writeToFile("out/fast-hs-request.txt", string(fast.hsReqDump)), "Failed to write fast handshake request")
+			failIf(writeToFile("out/fast-hs-response.txt", string(fast.hsResDump)), "Failed to write fast handshake response")
+			failIf(writeToFile("out/fast-sess-request.txt", string(fast.sessReqDump)), "Failed to write fast session request")
+			failIf(writeToFile("out/fast-sess-response.txt", string(fast.sessResDump)), "Failed to write fast session response")
+		}
 
 		fmt.Println("Output written to files in 'out' directory")
 	}
