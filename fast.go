@@ -24,10 +24,11 @@ const (
 )
 
 // Opaque ticket placeholders (not AEAD). Longer than session_id (16 octets) so the
-// examples stay visually distinct from the session identifier. Dumps truncate the
-// ticket base64 with "..." for draft includes (sign/verify still use the full value).
+// examples stay visually distinct from the session identifier. Dumps ellipsize WITs
+// and ticket base64 with "..." for draft includes (sign/verify still use full values).
 var (
 	ticketParamDumpRE = regexp.MustCompile(`(wimse-ticket-(?:server|client)=:)([^:]+)(:)`)
+	witHeaderDumpRE   = regexp.MustCompile(`(?im)^(Workload-Identity-Token:\s*)(\S+)([ \t]*\r?\n)`)
 
 	ticketServerPlaceholder = []byte{
 		0x74, 0x69, 0x63, 0x6b, 0x65, 0x74, 0x2d, 0x73, // "ticket-s"
@@ -199,6 +200,7 @@ Workload-Identity-Token: %s
 
 	hsReqDump, err := httputil.DumpRequest(hsReq, true)
 	failIf(err, "Could not dump fast handshake request")
+	hsReqDump = ellipsizeFastDump(hsReqDump)
 
 	// --- Handshake response (base profile + enc + opaque ticket_server) ---
 	hsResBody := "No ice cream today.\n"
@@ -236,7 +238,7 @@ Content-Length: %d
 
 	hsResDump, err := httputil.DumpResponse(hsRes, true)
 	failIf(err, "Could not dump fast handshake response")
-	hsResDump = ellipsizeTicketParams(hsResDump)
+	hsResDump = ellipsizeFastDump(hsResDump)
 
 	keys := deriveSessionKeys(sharedSecret, fastKemSuite, hsReqNonce, hsResNonce, callerWIT, calleeWIT)
 	if debug {
@@ -277,7 +279,7 @@ Host: svcb.example.com
 
 	sessReqDump, err := httputil.DumpRequest(sessReq, true)
 	failIf(err, "Could not dump session request")
-	sessReqDump = ellipsizeTicketParams(sessReqDump)
+	sessReqDump = ellipsizeFastDump(sessReqDump)
 
 	// --- Session response (HMAC k_res; echo both tickets) ---
 	sessResBody := "No ice cream today.\n"
@@ -313,7 +315,7 @@ Content-Length: %d
 
 	sessResDump, err := httputil.DumpResponse(sessRes, true)
 	failIf(err, "Could not dump session response")
-	sessResDump = ellipsizeTicketParams(sessResDump)
+	sessResDump = ellipsizeFastDump(sessResDump)
 
 	return fastExamples{
 		hsReqDump:   hsReqDump,
@@ -329,21 +331,33 @@ func hmacEqual(a, b []byte) bool {
 	return len(a) == len(b) && subtle.ConstantTimeCompare(a, b) == 1
 }
 
-// ellipsizeTicketParams rewrites ticket Byte Sequences in a dumped message so draft
-// includes stay readable. Keep the first and last 8 base64 characters.
-func ellipsizeTicketParams(dump []byte) []byte {
-	return ticketParamDumpRE.ReplaceAllFunc(dump, func(m []byte) []byte {
+// ellipsizeFastDump shortens WITs and ticket Byte Sequences in dumped messages for
+// draft includes. WITs stay as raw header values (compact JWS), not comments or SFV.
+func ellipsizeFastDump(dump []byte) []byte {
+	dump = witHeaderDumpRE.ReplaceAllFunc(dump, func(m []byte) []byte {
+		parts := witHeaderDumpRE.FindSubmatch(m)
+		if len(parts) != 4 {
+			return m
+		}
+		shown := ellipsizeASCII(parts[2], 20, 12)
+		out := append(append([]byte{}, parts[1]...), shown...)
+		return append(out, parts[3]...)
+	})
+	dump = ticketParamDumpRE.ReplaceAllFunc(dump, func(m []byte) []byte {
 		parts := ticketParamDumpRE.FindSubmatch(m)
 		if len(parts) != 4 {
 			return m
 		}
-		b64 := parts[2]
-		if len(b64) <= 20 {
-			return m
-		}
-		truncated := append(append(append([]byte{}, parts[1]...), b64[:8]...), []byte("...")...)
-		truncated = append(truncated, b64[len(b64)-8:]...)
-		truncated = append(truncated, parts[3]...)
-		return truncated
+		shown := ellipsizeASCII(parts[2], 8, 8)
+		out := append(append([]byte{}, parts[1]...), shown...)
+		return append(out, parts[3]...)
 	})
+	return dump
+}
+
+func ellipsizeASCII(val []byte, head, tail int) string {
+	if len(val) <= head+tail+3 {
+		return string(val)
+	}
+	return string(val[:head]) + "..." + string(val[len(val)-tail:])
 }

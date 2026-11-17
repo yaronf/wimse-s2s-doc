@@ -58,8 +58,8 @@ With `--fast`:
 - `fast-sess-response.txt` - Session response (HMAC, both tickets echoed)
 
 Tickets are long fixed opaque byte placeholders (64 and 80 octets), not real AEAD.
-Sign/verify uses the full value; dumped `out/fast-*.txt` files truncate ticket base64
-with `...` so draft includes stay readable.
+Sign/verify uses full values; dumped `out/fast-*.txt` files truncate WIT JWTs and ticket
+base64 with `...` so draft includes stay readable inline.
 
 ### Fast examples are not KEM/KDF test vectors
 
@@ -74,7 +74,7 @@ Missing for test vectors:
 
 Without those secrets, a third party cannot Decap, re-derive the MAC keys, or
 independently verify the session HMACs. Keys are also regenerated on every run,
-and ticket values in the dumps are ellipsized — fine for includes, not for stable
+and WIT/ticket values in the dumps are ellipsized — fine for includes, not for stable
 vectors. If we add vectors later, put them in a separate fixed artifact (for
 example `out/fast-test-vectors.json`), not in the include files.
 
