@@ -7,7 +7,7 @@ toolchain go1.27.1
 require (
 	github.com/cloudflare/circl v1.6.5
 	github.com/lestrrat-go/jwx/v4 v4.6.0
-	github.com/yaronf/httpsign v0.6.1
+	github.com/yaronf/httpsign v0.6.3
 	golang.org/x/crypto v0.56.0
 )
 
@@ -17,6 +17,3 @@ require (
 	github.com/lestrrat-go/option/v3 v3.0.0-alpha1 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 )
-
-// Until httpsign releases []byte custom params + 32-byte HMAC keys (PR #48).
-replace github.com/yaronf/httpsign => ../../http-sig/httpsign

@@ -78,7 +78,7 @@ and WIT/ticket values in the dumps are ellipsized — fine for includes, not for
 vectors. If we add vectors later, put them in a separate fixed artifact (for
 example `out/fast-test-vectors.json`), not in the include files.
 
-`AddCustomParam` with `[]byte` (RFC 8941 Byte Sequence) requires a httpsign build that accepts that type (see the local `replace` in `go.mod` until a tagged release includes it).
+Fast examples need httpsign v0.6.3+ (`[]byte` custom signature parameters and 32-octet HMAC keys).
 
 The `out` directory will be created automatically if it does not exist.
 
